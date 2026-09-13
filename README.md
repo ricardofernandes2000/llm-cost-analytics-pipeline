@@ -112,6 +112,26 @@ The deployed pipeline was validated with fictional data:
 - 164 failed requests
 - 1,271 ms average latency
 
+## Tests
+
+The Python tests run locally without calling Google Cloud services. They cover ingestion cost calculation, event transformation, API responses, CORS handling, unsupported methods, and BigQuery error handling with mocked queries.
+
+From the repository root, install the development dependency and run the tests:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
+The frontend checks are run from `frontend/`:
+
+```bash
+npm run lint
+npm run build
+```
+
+The deployed API and Cloud Storage trigger were also validated separately with real Google Cloud resources.
+
 ## Security Notes
 
 - Cloud Storage buckets use public access prevention.
