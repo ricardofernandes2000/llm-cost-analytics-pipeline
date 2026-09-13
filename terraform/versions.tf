@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 6.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.7"
+    }
   }
 }
 
@@ -13,3 +17,5 @@ provider "google" {
   project = var.project_id
   region  = var.region
 }
+
+provider "archive" {}
