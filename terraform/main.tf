@@ -12,6 +12,12 @@ data "archive_file" "ingestion_source" {
   output_path = "${path.module}/ingestion-source.zip"
 }
 
+data "archive_file" "api_source" {
+  type        = "zip"
+  source_dir  = "${path.module}/../functions/api"
+  output_path = "${path.module}/api-source.zip"
+}
+
 resource "google_project_service" "required_apis" {
   for_each = toset([
     "bigquery.googleapis.com",
@@ -72,6 +78,12 @@ resource "google_storage_bucket_object" "ingestion_source" {
   source = data.archive_file.ingestion_source.output_path
 }
 
+resource "google_storage_bucket_object" "api_source" {
+  name   = "api-${data.archive_file.api_source.output_md5}.zip"
+  bucket = google_storage_bucket.function_source.name
+  source = data.archive_file.api_source.output_path
+}
+
 resource "google_service_account" "ingestion" {
   account_id   = "llm-ingestion"
   display_name = "LLM analytics ingestion function"
@@ -80,6 +92,11 @@ resource "google_service_account" "ingestion" {
 resource "google_service_account" "ingestion_trigger" {
   account_id   = "llm-ingestion-trigger"
   display_name = "Eventarc trigger for LLM ingestion"
+}
+
+resource "google_service_account" "api" {
+  account_id   = "llm-analytics-api"
+  display_name = "LLM analytics API function"
 }
 
 resource "google_project_iam_member" "cloud_build_builder" {
@@ -130,6 +147,18 @@ resource "google_bigquery_dataset_iam_member" "ingestion_writer" {
   dataset_id = google_bigquery_dataset.llm_analytics.dataset_id
   role       = "roles/bigquery.dataEditor"
   member     = "serviceAccount:${google_service_account.ingestion.email}"
+}
+
+resource "google_bigquery_dataset_iam_member" "api_reader" {
+  dataset_id = google_bigquery_dataset.llm_analytics.dataset_id
+  role       = "roles/bigquery.dataViewer"
+  member     = "serviceAccount:${google_service_account.api.email}"
+}
+
+resource "google_project_iam_member" "api_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.api.email}"
 }
 
 resource "google_storage_bucket_iam_member" "ingestion_reader" {
@@ -191,6 +220,60 @@ resource "google_cloudfunctions2_function" "ingestion" {
     google_project_iam_member.storage_service_agent_publisher,
     google_cloud_run_service_iam_member.trigger_invoker,
   ]
+}
+
+resource "google_cloudfunctions2_function" "api" {
+  name        = "llm-analytics-api"
+  location    = var.region
+  description = "Serves LLM usage and cost analytics."
+
+  build_config {
+    runtime     = "python312"
+    entry_point = "analytics_api"
+
+    source {
+      storage_source {
+        bucket = google_storage_bucket.function_source.name
+        object = google_storage_bucket_object.api_source.name
+      }
+    }
+  }
+
+  service_config {
+    available_memory      = "256M"
+    timeout_seconds       = 60
+    max_instance_count    = 1
+    service_account_email = google_service_account.api.email
+
+    environment_variables = {
+      BQ_PROJECT_ID = var.project_id
+      BQ_DATASET    = google_bigquery_dataset.llm_analytics.dataset_id
+      BQ_TABLE      = google_bigquery_table.api_events.table_id
+      CORS_ORIGIN   = "*"
+    }
+  }
+
+  depends_on = [
+    google_project_service.required_apis,
+    google_bigquery_dataset_iam_member.api_reader,
+    google_project_iam_member.api_job_user,
+  ]
+}
+
+resource "google_cloudfunctions2_function_iam_member" "api_invoker" {
+  project        = var.project_id
+  location       = var.region
+  cloud_function = google_cloudfunctions2_function.api.name
+  role           = "roles/cloudfunctions.invoker"
+  member         = "allUsers"
+}
+
+resource "google_cloud_run_service_iam_member" "api_invoker" {
+  project  = var.project_id
+  location = var.region
+  service  = google_cloudfunctions2_function.api.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
 
 resource "google_bigquery_dataset" "llm_analytics" {
