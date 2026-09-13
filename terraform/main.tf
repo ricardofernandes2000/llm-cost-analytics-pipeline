@@ -77,6 +77,11 @@ resource "google_service_account" "ingestion" {
   display_name = "LLM analytics ingestion function"
 }
 
+resource "google_service_account" "ingestion_trigger" {
+  account_id   = "llm-ingestion-trigger"
+  display_name = "Eventarc trigger for LLM ingestion"
+}
+
 resource "google_project_iam_member" "cloud_build_builder" {
   project = var.project_id
   role    = "roles/cloudbuild.builds.builder"
@@ -93,6 +98,32 @@ resource "google_project_iam_member" "compute_artifact_writer" {
   project = var.project_id
   role    = "roles/artifactregistry.writer"
   member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "trigger_event_receiver" {
+  project = var.project_id
+  role    = "roles/eventarc.eventReceiver"
+  member  = "serviceAccount:${google_service_account.ingestion_trigger.email}"
+}
+
+resource "google_project_iam_member" "eventarc_service_agent" {
+  project = var.project_id
+  role    = "roles/eventarc.serviceAgent"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-eventarc.iam.gserviceaccount.com"
+}
+
+resource "google_cloud_run_service_iam_member" "trigger_invoker" {
+  project  = var.project_id
+  location = var.region
+  service  = "llm-ingestion"
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.ingestion_trigger.email}"
+}
+
+resource "google_project_iam_member" "storage_service_agent_publisher" {
+  project = var.project_id
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gs-project-accounts.iam.gserviceaccount.com"
 }
 
 resource "google_bigquery_dataset_iam_member" "ingestion_writer" {
@@ -131,8 +162,20 @@ resource "google_cloudfunctions2_function" "ingestion" {
     service_account_email = google_service_account.ingestion.email
 
     environment_variables = {
-      BQ_DATASET = google_bigquery_dataset.llm_analytics.dataset_id
-      BQ_TABLE   = google_bigquery_table.api_events.table_id
+      BQ_PROJECT_ID = var.project_id
+      BQ_DATASET    = google_bigquery_dataset.llm_analytics.dataset_id
+      BQ_TABLE      = google_bigquery_table.api_events.table_id
+    }
+  }
+
+  event_trigger {
+    event_type            = "google.cloud.storage.object.v1.finalized"
+    retry_policy          = "RETRY_POLICY_RETRY"
+    service_account_email = google_service_account.ingestion_trigger.email
+
+    event_filters {
+      attribute = "bucket"
+      value     = google_storage_bucket.raw_events.name
     }
   }
 
@@ -143,6 +186,10 @@ resource "google_cloudfunctions2_function" "ingestion" {
     google_project_iam_member.cloud_build_builder,
     google_project_iam_member.compute_build_builder,
     google_project_iam_member.compute_artifact_writer,
+    google_project_iam_member.trigger_event_receiver,
+    google_project_iam_member.eventarc_service_agent,
+    google_project_iam_member.storage_service_agent_publisher,
+    google_cloud_run_service_iam_member.trigger_invoker,
   ]
 }
 

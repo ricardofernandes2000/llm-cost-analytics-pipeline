@@ -63,7 +63,7 @@ def ingest_events(cloud_event: Any) -> None:
     events = load_events(bucket_name, object_name)
     rows = [build_row(event) for event in events]
 
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    project_id = os.environ["BQ_PROJECT_ID"]
     dataset_id = os.environ.get("BQ_DATASET", "llm_analytics")
     table_id = os.environ.get("BQ_TABLE", "api_events")
     table_ref = f"{project_id}.{dataset_id}.{table_id}"
