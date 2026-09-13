@@ -46,7 +46,7 @@ resource "google_storage_bucket" "raw_events" {
 }
 
 resource "google_storage_bucket" "function_source" {
-  name                        = "${local.resource_prefix}-function-source-${var.project_id}"
+  name                        = "llm-fn-src-${substr(md5(var.project_id), 0, 12)}"
   location                    = var.region
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"
