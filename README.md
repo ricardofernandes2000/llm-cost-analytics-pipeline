@@ -26,6 +26,7 @@ functions/ingestion/    Cloud Storage ingestion function
 functions/api/          HTTP API function
 data/                   Sample event generation and local data
 frontend/               React dashboard
+docs/                   Technical documentation, including the BigQuery schema
 ```
 
 ## Local setup

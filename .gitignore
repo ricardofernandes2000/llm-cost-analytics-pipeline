@@ -22,3 +22,6 @@ dist/
 
 # Editor
 .vscode/settings.json
+
+# Private learning notes
+private-notes/
