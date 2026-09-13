@@ -2,6 +2,10 @@ locals {
   resource_prefix = "llm-cost-analytics"
 }
 
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
 data "archive_file" "ingestion_source" {
   type        = "zip"
   source_dir  = "${path.module}/../functions/ingestion"
@@ -73,6 +77,24 @@ resource "google_service_account" "ingestion" {
   display_name = "LLM analytics ingestion function"
 }
 
+resource "google_project_iam_member" "cloud_build_builder" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.builder"
+  member  = "serviceAccount:${data.google_project.current.number}@cloudbuild.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "compute_build_builder" {
+  project = var.project_id
+  role    = "roles/cloudbuild.builds.builder"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "compute_artifact_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
 resource "google_bigquery_dataset_iam_member" "ingestion_writer" {
   dataset_id = google_bigquery_dataset.llm_analytics.dataset_id
   role       = "roles/bigquery.dataEditor"
@@ -83,6 +105,45 @@ resource "google_storage_bucket_iam_member" "ingestion_reader" {
   bucket = google_storage_bucket.raw_events.name
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.ingestion.email}"
+}
+
+resource "google_cloudfunctions2_function" "ingestion" {
+  name        = "llm-ingestion"
+  location    = var.region
+  description = "Processes uploaded LLM usage event files."
+
+  build_config {
+    runtime     = "python312"
+    entry_point = "ingest_events"
+
+    source {
+      storage_source {
+        bucket = google_storage_bucket.function_source.name
+        object = google_storage_bucket_object.ingestion_source.name
+      }
+    }
+  }
+
+  service_config {
+    available_memory      = "256M"
+    timeout_seconds       = 60
+    max_instance_count    = 1
+    service_account_email = google_service_account.ingestion.email
+
+    environment_variables = {
+      BQ_DATASET = google_bigquery_dataset.llm_analytics.dataset_id
+      BQ_TABLE   = google_bigquery_table.api_events.table_id
+    }
+  }
+
+  depends_on = [
+    google_project_service.required_apis,
+    google_bigquery_dataset_iam_member.ingestion_writer,
+    google_storage_bucket_iam_member.ingestion_reader,
+    google_project_iam_member.cloud_build_builder,
+    google_project_iam_member.compute_build_builder,
+    google_project_iam_member.compute_artifact_writer,
+  ]
 }
 
 resource "google_bigquery_dataset" "llm_analytics" {
