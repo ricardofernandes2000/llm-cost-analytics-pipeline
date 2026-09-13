@@ -45,6 +45,8 @@ docs/                   Technical documentation, including the BigQuery schema
 
 The React dashboard consumes the analytics API and displays total cost, processed requests, average latency, success rate, token usage, cost distribution by provider, and request volume by model.
 
+Every generated event includes a unique `event_id`. Before inserting rows, the ingestion function looks up those IDs in BigQuery and skips IDs that already exist, so repeated uploads do not create duplicate records. The field is nullable to preserve the historical rows created before deduplication was introduced.
+
 ## Run the Dashboard Locally
 
 ```bash
@@ -98,7 +100,7 @@ terraform -chdir=terraform apply -var="project_id=YOUR_PROJECT_ID"
 
 ## Data schema
 
-The BigQuery `llm_analytics.api_events` table contains: `timestamp`, `provider`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`, and `status`.
+The BigQuery `llm_analytics.api_events` table contains: nullable `event_id`, `timestamp`, `provider`, `model`, `input_tokens`, `output_tokens`, `cost_usd`, `latency_ms`, and `status`.
 
 See [docs/bigquery-schema.md](docs/bigquery-schema.md) for details.
 
@@ -111,6 +113,7 @@ The deployed pipeline was validated with fictional data:
 - 3,836 successful requests
 - 164 failed requests
 - 1,271 ms average latency
+- Repeated 1,000-event uploads skipped as duplicates by `event_id`
 
 ## Tests
 

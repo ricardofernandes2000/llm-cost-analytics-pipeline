@@ -1,6 +1,6 @@
 import pytest
 
-from functions.ingestion.main import build_row, calculate_cost_usd
+from functions.ingestion.main import build_row, calculate_cost_usd, find_existing_event_ids
 
 
 def test_calculate_cost_for_supported_model() -> None:
@@ -27,6 +27,7 @@ def test_calculate_cost_rejects_unknown_model() -> None:
 
 def test_build_row_converts_numeric_fields_and_adds_cost() -> None:
     event = {
+        "event_id": "evt-0001",
         "timestamp": "2026-09-13T12:00:00Z",
         "provider": "OpenAI",
         "model": "gpt-4o",
@@ -39,6 +40,7 @@ def test_build_row_converts_numeric_fields_and_adds_cost() -> None:
     row = build_row(event)
 
     assert row == {
+        "event_id": "evt-0001",
         "timestamp": "2026-09-13T12:00:00Z",
         "provider": "OpenAI",
         "model": "gpt-4o",
@@ -62,3 +64,29 @@ def test_build_row_rejects_missing_required_field() -> None:
 
     with pytest.raises(KeyError):
         build_row(event)
+
+
+def test_find_existing_event_ids_returns_matching_ids() -> None:
+    class QueryResult:
+        def result(self):
+            return [{"event_id": "evt-0001"}, {"event_id": "evt-0003"}]
+
+    class FakeClient:
+        def query(self, query, job_config):
+            assert "event_id IN UNNEST(@event_ids)" in query
+            assert job_config.query_parameters[0].name == "event_ids"
+            return QueryResult()
+
+    existing = find_existing_event_ids(
+        FakeClient(), "demo-project.llm_analytics.api_events", ["evt-0001", "evt-0002"]
+    )
+
+    assert existing == {"evt-0001", "evt-0003"}
+
+
+def test_find_existing_event_ids_skips_empty_input() -> None:
+    class UnexpectedClient:
+        def query(self, *args, **kwargs):
+            raise AssertionError("A query should not run for an empty ID list")
+
+    assert find_existing_event_ids(UnexpectedClient(), "table", []) == set()

@@ -161,6 +161,12 @@ resource "google_project_iam_member" "api_job_user" {
   member  = "serviceAccount:${google_service_account.api.email}"
 }
 
+resource "google_project_iam_member" "ingestion_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.ingestion.email}"
+}
+
 resource "google_storage_bucket_iam_member" "ingestion_reader" {
   bucket = google_storage_bucket.raw_events.name
   role   = "roles/storage.objectViewer"
@@ -299,6 +305,11 @@ resource "google_bigquery_table" "api_events" {
 
   schema = <<EOF
 [
+  {
+    "name": "event_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
   {
     "name": "timestamp",
     "type": "TIMESTAMP",

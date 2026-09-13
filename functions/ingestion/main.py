@@ -36,6 +36,7 @@ def build_row(event: dict[str, Any]) -> dict[str, Any]:
     output_tokens = int(event["output_tokens"])
 
     return {
+        "event_id": event["event_id"],
         "timestamp": event["timestamp"],
         "provider": event["provider"],
         "model": model,
@@ -44,6 +45,29 @@ def build_row(event: dict[str, Any]) -> dict[str, Any]:
         "cost_usd": calculate_cost_usd(model, input_tokens, output_tokens),
         "latency_ms": int(event["latency_ms"]),
         "status": event["status"],
+    }
+
+
+def find_existing_event_ids(
+    bigquery_client: bigquery.Client,
+    table_ref: str,
+    event_ids: list[str],
+) -> set[str]:
+    """Return event IDs already stored in BigQuery."""
+    if not event_ids:
+        return set()
+
+    query = f"""
+    SELECT event_id
+    FROM `{table_ref}`
+    WHERE event_id IN UNNEST(@event_ids)
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[bigquery.ArrayQueryParameter("event_ids", "STRING", event_ids)]
+    )
+    return {
+        row["event_id"]
+        for row in bigquery_client.query(query, job_config=job_config).result()
     }
 
 
@@ -69,6 +93,16 @@ def ingest_events(cloud_event: Any) -> None:
     table_ref = f"{project_id}.{dataset_id}.{table_id}"
 
     bigquery_client = bigquery.Client()
+    event_ids = [event["event_id"] for event in events]
+    existing_event_ids = find_existing_event_ids(
+        bigquery_client, table_ref, event_ids
+    )
+    rows = [row for row in rows if row["event_id"] not in existing_event_ids]
+
+    if not rows:
+        print(f"Skipped {len(events)} duplicate rows from gs://{bucket_name}/{object_name}")
+        return
+
     errors = bigquery_client.insert_rows_json(table_ref, rows)
     if errors:
         raise RuntimeError(f"BigQuery insert failed: {errors}")
