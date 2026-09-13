@@ -2,6 +2,21 @@ locals {
   resource_prefix = "llm-cost-analytics"
 }
 
+resource "google_project_service" "required_apis" {
+  for_each = toset([
+    "bigquery.googleapis.com",
+    "cloudfunctions.googleapis.com",
+    "cloudbuild.googleapis.com",
+    "eventarc.googleapis.com",
+    "run.googleapis.com",
+    "artifactregistry.googleapis.com",
+  ])
+
+  project            = var.project_id
+  service            = each.value
+  disable_on_destroy = false
+}
+
 resource "google_storage_bucket" "raw_events" {
   name                        = "${local.resource_prefix}-${var.project_id}"
   location                    = var.region
