@@ -1,6 +1,14 @@
+from types import SimpleNamespace
+
 import pytest
 
-from functions.ingestion.main import build_row, calculate_cost_usd, find_existing_event_ids
+from functions.ingestion import main as ingestion
+from functions.ingestion.main import (
+    build_row,
+    calculate_cost_usd,
+    find_existing_event_ids,
+    remove_duplicate_rows,
+)
 
 
 def test_calculate_cost_for_supported_model() -> None:
@@ -90,3 +98,64 @@ def test_find_existing_event_ids_skips_empty_input() -> None:
             raise AssertionError("A query should not run for an empty ID list")
 
     assert find_existing_event_ids(UnexpectedClient(), "table", []) == set()
+
+
+def test_remove_duplicate_rows_skips_stored_and_repeated_batch_ids() -> None:
+    rows = [
+        {"event_id": "evt-stored", "value": "already stored"},
+        {"event_id": "evt-new", "value": "first occurrence"},
+        {"event_id": "evt-new", "value": "repeated in batch"},
+        {"event_id": None, "value": "without ID"},
+        {"event_id": None, "value": "another without ID"},
+    ]
+
+    unique_rows, duplicate_count = remove_duplicate_rows(rows, {"evt-stored"})
+
+    assert unique_rows == [
+        {"event_id": "evt-new", "value": "first occurrence"},
+        {"event_id": None, "value": "without ID"},
+        {"event_id": None, "value": "another without ID"},
+    ]
+    assert duplicate_count == 2
+
+
+def test_ingest_events_skips_repeated_ids_in_same_file(monkeypatch, capsys) -> None:
+    event = {
+        "event_id": "evt-0001",
+        "timestamp": "2026-09-13T12:00:00Z",
+        "provider": "OpenAI",
+        "model": "gpt-4o",
+        "input_tokens": 1000,
+        "output_tokens": 500,
+        "latency_ms": 250,
+        "status": "success",
+    }
+
+    class QueryResult:
+        def result(self):
+            return []
+
+    class FakeClient:
+        def __init__(self):
+            self.inserted_rows = []
+
+        def query(self, query, job_config):
+            assert job_config.query_parameters[0].values == ["evt-0001"]
+            return QueryResult()
+
+        def insert_rows_json(self, table_ref, rows):
+            self.inserted_rows = rows
+            return []
+
+    client = FakeClient()
+    monkeypatch.setattr(ingestion, "load_events", lambda *_: [event, event])
+    monkeypatch.setattr(ingestion.bigquery, "Client", lambda: client)
+    monkeypatch.setenv("BQ_PROJECT_ID", "demo-project")
+
+    ingestion.ingest_events(
+        SimpleNamespace(data={"bucket": "demo-bucket", "name": "events.json"})
+    )
+
+    assert len(client.inserted_rows) == 1
+    assert client.inserted_rows[0]["event_id"] == "evt-0001"
+    assert "Skipped 1 duplicate rows" in capsys.readouterr().out

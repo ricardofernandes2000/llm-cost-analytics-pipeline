@@ -71,6 +71,27 @@ def find_existing_event_ids(
     }
 
 
+def remove_duplicate_rows(
+    rows: list[dict[str, Any]], existing_event_ids: set[str]
+) -> tuple[list[dict[str, Any]], int]:
+    """Keep the first row for each event ID not already stored."""
+    seen_event_ids = set(existing_event_ids)
+    unique_rows = []
+    duplicate_count = 0
+
+    for row in rows:
+        event_id = row["event_id"]
+        if event_id is not None and event_id in seen_event_ids:
+            duplicate_count += 1
+            continue
+
+        unique_rows.append(row)
+        if event_id is not None:
+            seen_event_ids.add(event_id)
+
+    return unique_rows, duplicate_count
+
+
 def load_events(bucket_name: str, object_name: str) -> list[dict[str, Any]]:
     """Download and parse a JSON array from Cloud Storage."""
     storage_client = storage.Client()
@@ -93,14 +114,17 @@ def ingest_events(cloud_event: Any) -> None:
     table_ref = f"{project_id}.{dataset_id}.{table_id}"
 
     bigquery_client = bigquery.Client()
-    event_ids = [event["event_id"] for event in events]
+    event_ids = list(
+        dict.fromkeys(event["event_id"] for event in events if event["event_id"] is not None)
+    )
     existing_event_ids = find_existing_event_ids(
         bigquery_client, table_ref, event_ids
     )
-    rows = [row for row in rows if row["event_id"] not in existing_event_ids]
+    rows, duplicate_count = remove_duplicate_rows(rows, existing_event_ids)
 
+    if duplicate_count:
+        print(f"Skipped {duplicate_count} duplicate rows from gs://{bucket_name}/{object_name}")
     if not rows:
-        print(f"Skipped {len(events)} duplicate rows from gs://{bucket_name}/{object_name}")
         return
 
     errors = bigquery_client.insert_rows_json(table_ref, rows)

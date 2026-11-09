@@ -45,7 +45,7 @@ docs/                   Technical documentation, including the BigQuery schema
 
 The React dashboard consumes the analytics API and displays total cost, processed requests, average latency, success rate, token usage, cost distribution by provider, and request volume by model.
 
-Every generated event includes a unique `event_id`. Before inserting rows, the ingestion function looks up those IDs in BigQuery and skips IDs that already exist, so repeated uploads do not create duplicate records. The field is nullable to preserve the historical rows created before deduplication was introduced.
+Every generated event includes a unique `event_id`. Before inserting rows, the ingestion function looks up non-null IDs in BigQuery and skips IDs that already exist. It also keeps only the first occurrence of an ID repeated within the same file. Rows with a null `event_id` are not deduplicated. The field is nullable to preserve historical rows created before deduplication was introduced.
 
 ## Run the Dashboard Locally
 
@@ -108,16 +108,14 @@ See [docs/bigquery-schema.md](docs/bigquery-schema.md) for details.
 
 The deployed pipeline was validated with fictional data:
 
-- 4,000 requests processed
-- `$44.70` total calculated cost
-- 3,836 successful requests
-- 164 failed requests
+- 6,000 requests present after the deduplication validation
+- `$67.05` total calculated cost in the live dashboard validation
 - 1,271 ms average latency
-- Repeated 1,000-event uploads skipped as duplicates by `event_id`
+- Repeated 1,000-event uploads skipped as duplicates by `event_id`; the repeated upload did not increase the total from 6,000
 
 ## Tests
 
-The Python tests run locally without calling Google Cloud services. They cover ingestion cost calculation, event transformation, API responses, CORS handling, unsupported methods, and BigQuery error handling with mocked queries.
+The Python tests run locally without calling Google Cloud services. They cover ingestion cost calculation, event transformation, duplicate-ID lookup and in-file filtering, API responses, CORS handling, unsupported methods, and BigQuery error handling with mocked queries.
 
 From the repository root, install the development dependency and run the tests:
 
@@ -132,6 +130,8 @@ The frontend checks are run from `frontend/`:
 npm run lint
 npm run build
 ```
+
+GitHub Actions runs the Python tests and frontend lint/build checks on pull requests and pushes to `main`.
 
 The deployed API and Cloud Storage trigger were also validated separately with real Google Cloud resources.
 
