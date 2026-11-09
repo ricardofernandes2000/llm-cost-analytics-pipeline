@@ -6,6 +6,7 @@ The `llm_analytics` dataset contains the `api_events` table. It stores one row f
 
 | Field | Type | Mode | Description |
 | --- | --- | --- | --- |
+| `event_id` | `STRING` | `NULLABLE` | Unique event identifier used by ingestion to skip repeated uploads. Nullable for historical rows created before deduplication. |
 | `timestamp` | `TIMESTAMP` | `REQUIRED` | UTC time when the API event occurred. |
 | `provider` | `STRING` | `REQUIRED` | LLM provider, such as OpenAI, Gemini, or Claude. |
 | `model` | `STRING` | `REQUIRED` | Model used for the request. |
