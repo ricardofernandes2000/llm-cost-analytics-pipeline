@@ -49,8 +49,19 @@ Every generated event includes a unique `event_id`. Before inserting rows, the i
 
 ## Run the Dashboard Locally
 
-```bash
-cd frontend
+To test the date filter against the updated API without deploying it, start the API locally in a PowerShell terminal from the repository root:
+
+```powershell
+$env:BQ_PROJECT_ID = (gcloud config get-value project)
+py -m functions_framework --source=functions/api/main.py --target=analytics_api --port=8080
+```
+
+This requires Application Default Credentials for the intended Google account. The local API makes read-only BigQuery queries, which use Google Cloud resources.
+
+In a second terminal, start the frontend. Development mode points to the local API automatically:
+
+```powershell
+Set-Location frontend
 npm install
 npm run dev
 ```
@@ -70,6 +81,14 @@ The deployed HTTP function exposes read-only analytics from BigQuery:
 ```bash
 curl https://llm-analytics-api-zghvsfuxiq-ew.a.run.app
 ```
+
+The API implementation returns all-time analytics by default. Add `days` (an integer from 1 to 365) to filter the rolling window; for example:
+
+```bash
+curl "https://llm-analytics-api-zghvsfuxiq-ew.a.run.app?days=30"
+```
+
+The dashboard offers all-time, 7-day, 30-day, and 90-day views. The hosted endpoint needs this API update deployed before the filter affects live data.
 
 Example response:
 
